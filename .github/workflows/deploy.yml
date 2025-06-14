@@ -1,0 +1,78 @@
+name: Deploy to Windows Host
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  PROJECT_PATH: C:\projects\clinic-app
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Show current directory
+      run: |
+        echo "Current directory: %CD%"
+        dir
+      shell: cmd
+      
+    - name: Copy environment file
+      run: |
+        if not exist .env (
+          echo POSTGRES_DB=clinic_db > .env
+          echo POSTGRES_USER=clinic_user >> .env
+          echo POSTGRES_PASSWORD=clinic_password >> .env
+          echo DB_HOST=postgres >> .env
+          echo DB_PORT=5432 >> .env
+          echo .env file created
+        ) else (
+          echo .env file already exists
+        )
+      shell: cmd
+      
+    - name: Stop existing containers
+      run: |
+        docker-compose down
+      shell: cmd
+      continue-on-error: true
+      
+    - name: Clean up old images (optional)
+      run: |
+        docker system prune -f
+      shell: cmd
+      continue-on-error: true
+      
+    - name: Build and start services
+      run: |
+        docker-compose up -d --build
+      shell: cmd
+      
+    - name: Wait for services to start
+      run: |
+        echo Waiting for services to start...
+        timeout /t 30 /nobreak
+      shell: cmd
+      
+    - name: Show container status
+      run: |
+        echo === Container Status ===
+        docker ps
+        echo === Container Logs ===
+        docker-compose logs --tail=20
+      shell: cmd
+      
+    - name: Test services
+      run: |
+        echo Testing registratura service...
+        curl -f http://localhost:5001/patients || echo "Registratura service not ready yet"
+        echo Testing schedule service...
+        curl -f http://localhost:5002/doctors || echo "Schedule service not ready yet"
+      shell: cmd
+      continue-on-error: true
