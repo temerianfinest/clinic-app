@@ -1,6 +1,8 @@
 @echo off
 echo Starting deployment...
 
+whoami
+
 echo Pulling latest changes...
 git pull origin main
 
