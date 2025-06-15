@@ -1,17 +1,26 @@
-name: Simple Deploy to Windows
+@echo off
+echo Starting deployment...
 
-on:
-  push:
-    branches: [ main ]
+echo Pulling latest changes...
+git pull origin main
 
-jobs:
-  deploy:
-    runs-on: self-hosted
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Run deployment script
-      run: .\deploy.bat
-      shell: cmd
+echo Stopping existing containers...
+docker-compose down
+
+echo Cleaning up...
+docker system prune -f
+
+echo Building and starting services...
+docker-compose up -d --build
+
+echo Waiting for services...
+timeout /t 30 /nobreak
+
+echo Checking status...
+docker ps
+
+echo Testing APIs...
+curl http://localhost:5001/patients
+curl http://localhost:5002/doctors
+
+echo Deployment complete!
