@@ -3,11 +3,6 @@ name: Deploy to Windows Host
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-
-env:
-  PROJECT_PATH: C:\projects\clinic-app
 
 jobs:
   deploy:
@@ -17,62 +12,95 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       
-    - name: Show current directory
+    - name: Verify Docker access
       run: |
-        echo "Current directory: %CD%"
-        dir
-      shell: cmd
+        echo "Checking Docker access..."
+        docker --version
+        docker info
+      shell: powershell
       
-    - name: Copy environment file
+    - name: Show current directory and files
       run: |
-        if not exist .env (
-          echo POSTGRES_DB=clinic_db > .env
-          echo POSTGRES_USER=clinic_user >> .env
-          echo POSTGRES_PASSWORD=clinic_password >> .env
-          echo DB_HOST=postgres >> .env
-          echo DB_PORT=5432 >> .env
-          echo .env file created
-        ) else (
-          echo .env file already exists
-        )
-      shell: cmd
+        Write-Host "Current directory: $(Get-Location)"
+        Get-ChildItem
+      shell: powershell
+      
+    - name: Ensure environment file exists
+      run: |
+        if (-not (Test-Path ".env")) {
+          @"
+POSTGRES_DB=clinic_db
+POSTGRES_USER=clinic_user
+POSTGRES_PASSWORD=clinic_password
+DB_HOST=postgres
+DB_PORT=5432
+"@ | Out-File -FilePath ".env" -Encoding UTF8
+          Write-Host ".env file created"
+        } else {
+          Write-Host ".env file already exists"
+          Get-Content ".env"
+        }
+      shell: powershell
       
     - name: Stop existing containers
       run: |
-        docker-compose down
-      shell: cmd
+        docker-compose down 2>$null
+        if ($LASTEXITCODE -ne 0) { Write-Host "No containers to stop" }
+      shell: powershell
       continue-on-error: true
       
-    - name: Clean up old images (optional)
+    - name: Remove dangling images
       run: |
-        docker system prune -f
-      shell: cmd
+        docker image prune -f
+      shell: powershell
       continue-on-error: true
       
     - name: Build and start services
       run: |
+        Write-Host "Building and starting services..."
         docker-compose up -d --build
-      shell: cmd
+        if ($LASTEXITCODE -eq 0) {
+          Write-Host "Services started successfully"
+        } else {
+          Write-Host "Error starting services"
+          exit 1
+        }
+      shell: powershell
       
-    - name: Wait for services to start
+    - name: Wait for services to initialize
       run: |
-        echo Waiting for services to start...
-        timeout /t 30 /nobreak
-      shell: cmd
+        Write-Host "Waiting 45 seconds for services to initialize..."
+        Start-Sleep -Seconds 45
+      shell: powershell
       
-    - name: Show container status
+    - name: Show detailed container status
       run: |
-        echo === Container Status ===
-        docker ps
-        echo === Container Logs ===
-        docker-compose logs --tail=20
-      shell: cmd
+        Write-Host "=== Container Status ==="
+        docker ps -a
+        Write-Host "`n=== Docker Compose Status ==="
+        docker-compose ps
+        Write-Host "`n=== Recent Container Logs ==="
+        docker-compose logs --tail=30
+      shell: powershell
       
-    - name: Test services
+    - name: Test API endpoints
       run: |
-        echo Testing registratura service...
-        curl -f http://localhost:5001/patients || echo "Registratura service not ready yet"
-        echo Testing schedule service...
-        curl -f http://localhost:5002/doctors || echo "Schedule service not ready yet"
-      shell: cmd
+        Write-Host "Testing API endpoints..."
+        
+        try {
+          Write-Host "Testing registratura service..."
+          $response1 = Invoke-WebRequest -Uri "http://localhost:5001/patients" -Method GET -TimeoutSec 10
+          Write-Host "Registratura status: $($response1.StatusCode)"
+        } catch {
+          Write-Host "Registratura service not ready: $($_.Exception.Message)"
+        }
+        
+        try {
+          Write-Host "Testing schedule service..."
+          $response2 = Invoke-WebRequest -Uri "http://localhost:5002/doctors" -Method GET -TimeoutSec 10
+          Write-Host "Schedule status: $($response2.StatusCode)"
+        } catch {
+          Write-Host "Schedule service not ready: $($_.Exception.Message)"
+        }
+      shell: powershell
       continue-on-error: true
